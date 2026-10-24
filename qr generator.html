@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>مولد QR</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+*{box-sizing:border-box}
+body{
+    font-family: Tahoma, Arial, sans-serif;
+    background:#f3f5f9;
+    margin:0;
+    padding:20px;
+    color:#222;
+}
+.card{
+    max-width:560px;
+    margin:0 auto 20px;
+    background:#fff;
+    border-radius:14px;
+    padding:20px;
+    box-shadow:0 2px 10px rgba(0,0,0,.08);
+    text-align:center;
+}
+h2{margin-top:0}
+textarea{
+    width:100%;
+    height:100px;
+    font-size:16px;
+    padding:10px;
+    border:1px solid #bbb;
+    border-radius:8px;
+    resize:vertical;
+    font-family:inherit;
+}
+.row{
+    display:flex;
+    flex-wrap:wrap;
+    gap:12px;
+    justify-content:center;
+    align-items:center;
+    margin:12px 0;
+}
+.row label{font-size:15px}
+select,input[type=color]{
+    padding:4px;
+    font-size:15px;
+    border-radius:6px;
+    border:1px solid #bbb;
+}
+input[type=color]{width:44px;height:34px;padding:2px}
+button{
+    padding:9px 16px;
+    font-size:16px;
+    border:none;
+    border-radius:8px;
+    cursor:pointer;
+    background:#1769e0;
+    color:#fff;
+}
+button.sec{background:#e6eaf2;color:#222}
+button.danger{background:#d93a3a}
+button:disabled{opacity:.45;cursor:not-allowed}
+#qrWrap{
+    display:inline-block;
+    background:#fff;
+    padding:12px;
+    border:1px solid #ddd;
+    border-radius:10px;
+    margin-top:10px;
+    min-height:60px;
+}
+#qrcode img{display:none}
+#qrcode canvas{display:block}
+#msg{min-height:22px;color:#0a7d33;font-size:14px;margin-top:8px}
+#msg.err{color:#c62828}
+ul{list-style:none;padding:0;margin:0;text-align:right}
+li{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:8px 4px;
+    border-bottom:1px solid #eee;
+}
+li span{
+    flex:1;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    cursor:pointer;
+}
+li small{color:#888}
+li button{padding:4px 10px;font-size:14px}
+.empty{color:#888;text-align:center;padding:10px}
+@media print{
+    body{background:#fff}
+    .card:not(#printCard){display:none}
+    #printCard .noprint{display:none}
+}
+</style>
+</head>
+<body>
+
+<div class="card" id="printCard">
+    <h2>إنشاء رمز QR</h2>
+
+    <textarea id="text" placeholder="اكتب النص أو الرابط هنا"></textarea>
+
+    <div class="row noprint">
+        <label>الحجم:
+            <select id="size">
+                <option value="180">صغير</option>
+                <option value="256" selected>متوسط</option>
+                <option value="360">كبير</option>
+            </select>
+        </label>
+        <label>الجودة:
+            <select id="level">
+                <option value="L">منخفضة</option>
+                <option value="M">متوسطة</option>
+                <option value="Q">عالية</option>
+                <option value="H" selected>الأعلى</option>
+            </select>
+        </label>
+        <label>لون الرمز: <input type="color" id="fg" value="#000000"></label>
+        <label>الخلفية: <input type="color" id="bg" value="#ffffff"></label>
+    </div>
+
+    <div class="row noprint">
+        <button onclick="generateQR()">إنشاء QR</button>
+        <button class="sec" onclick="clearAll()">مسح</button>
+    </div>
+
+    <div id="qrWrap"><div id="qrcode"></div></div>
+
+    <div class="row noprint">
+        <button id="btnPng" class="sec" onclick="downloadQR()" disabled>حفظ كصورة PNG</button>
+        <button id="btnCopy" class="sec" onclick="copyQR()" disabled>نسخ الصورة</button>
+        <button id="btnPrint" class="sec" onclick="window.print()" disabled>طباعة</button>
+        <button id="btnSave" onclick="saveToList()" disabled>حفظ في القائمة</button>
+    </div>
+
+    <div id="msg"></div>
+</div>
+
+<div class="card noprint">
+    <h2>الرموز المحفوظة</h2>
+    <ul id="list"></ul>
+    <div class="row">
+        <button class="danger" id="btnClear" onclick="clearList()">حذف الكل</button>
+    </div>
+</div>
+
+<script>
+const KEY = "qr_saved_items";
+let current = null; // النص الحالي المولّد
+
+function $(id){ return document.getElementById(id); }
+
+function showMsg(t, isErr){
+    const m = $("msg");
+    m.textContent = t;
+    m.className = isErr ? "err" : "";
+    clearTimeout(showMsg.t);
+    showMsg.t = setTimeout(() => m.textContent = "", 3000);
+}
+
+function setButtons(on){
+    ["btnPng","btnCopy","btnPrint","btnSave"].forEach(id => $(id).disabled = !on);
+}
+
+function generateQR(){
+    const text = $("text").value.trim();
+    if(!text){
+        showMsg("الرجاء كتابة نص أولاً", true);
+        return;
+    }
+    const size = parseInt($("size").value, 10);
+    $("qrcode").innerHTML = "";
+    try{
+        new QRCode($("qrcode"), {
+            // تحويل النص إلى UTF-8 ليدعم العربية
+            text: unescape(encodeURIComponent(text)),
+            width: size,
+            height: size,
+            colorDark: $("fg").value,
+            colorLight: $("bg").value,
+            correctLevel: QRCode.CorrectLevel[$("level").value]
+        });
+        $("qrWrap").style.background = $("bg").value;
+        current = text;
+        setButtons(true);
+    }catch(e){
+        current = null;
+        setButtons(false);
+        showMsg("النص طويل جداً، قلّل طوله أو اخفض الجودة", true);
+    }
+}
+
+// بناء Canvas نهائي مع هامش أبيض
+function buildCanvas(){
+    const src = $("qrcode").querySelector("canvas");
+    if(!src) return null;
+    const margin = 24;
+    const c = document.createElement("canvas");
+    c.width = src.width + margin * 2;
+    c.height = src.height + margin * 2;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = $("bg").value;
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(src, margin, margin);
+    return c;
+}
+
+function downloadQR(){
+    const c = buildCanvas();
+    if(!c) return;
+    const a = document.createElement("a");
+    a.href = c.toDataURL("image/png");
+    a.download = "qr-code.png";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    showMsg("تم حفظ الصورة");
+}
+
+async function copyQR(){
+    const c = buildCanvas();
+    if(!c) return;
+    try{
+        const blob = await new Promise(r => c.toBlob(r, "image/png"));
+        await navigator.clipboard.write([new ClipboardItem({"image/png": blob})]);
+        showMsg("تم نسخ الصورة");
+    }catch(e){
+        showMsg("النسخ غير مدعوم في هذا المتصفح، استعمل الحفظ", true);
+    }
+}
+
+/* ===== القائمة المحفوظة ===== */
+function loadList(){
+    try{
+        return JSON.parse(localStorage.getItem(KEY)) || [];
+    }catch(e){
+        return [];
+    }
+}
+function storeList(arr){
+    try{
+        localStorage.setItem(KEY, JSON.stringify(arr));
+        return true;
+    }catch(e){
+        showMsg("تعذّر الحفظ في هذا المتصفح", true);
+        return false;
+    }
+}
+
+function saveToList(){
+    if(!current) return;
+    const arr = loadList();
+    if(arr.some(i => i.text === current)){
+        showMsg("هذا النص محفوظ مسبقاً", true);
+        return;
+    }
+    arr.unshift({ text: current, date: new Date().toLocaleString("ar-DZ") });
+    if(storeList(arr)){
+        renderList();
+        showMsg("تم الحفظ في القائمة");
+    }
+}
+
+function renderList(){
+    const ul = $("list");
+    const arr = loadList();
+    ul.innerHTML = "";
+    $("btnClear").style.display = arr.length ? "" : "none";
+    if(!arr.length){
+        ul.innerHTML = '<div class="empty">لا توجد عناصر محفوظة</div>';
+        return;
+    }
+    arr.forEach((item, i) => {
+        const li = document.createElement("li");
+        const s = document.createElement("span");
+        s.textContent = item.text;
+        s.title = "اضغط لإعادة الإنشاء";
+        s.onclick = () => { $("text").value = item.text; generateQR(); window.scrollTo({top:0, behavior:"smooth"}); };
+        const d = document.createElement("small");
+        d.textContent = item.date;
+        const b = document.createElement("button");
+        b.className = "danger";
+        b.textContent = "حذف";
+        b.onclick = () => {
+            const a = loadList();
+            a.splice(i, 1);
+            storeList(a);
+            renderList();
+        };
+        li.append(s, d, b);
+        ul.appendChild(li);
+    });
+}
+
+function clearList(){
+    if(confirm("هل تريد حذف كل العناصر المحفوظة؟")){
+        storeList([]);
+        renderList();
+    }
+}
+
+function clearAll(){
+    $("text").value = "";
+    $("qrcode").innerHTML = "";
+    current = null;
+    setButtons(false);
+}
+
+// Ctrl + Enter لإنشاء الرمز
+$("text").addEventListener("keydown", e => {
+    if(e.ctrlKey && e.key === "Enter") generateQR();
+});
+
+renderList();
+</script>
+
+</body>
+</html>
